@@ -22,7 +22,8 @@ export TRITON_PTXAS_PATH ?= /usr/local/cuda/bin/ptxas
 
 .PHONY: train smoke train-seq data-medical eval
 
-# Sequential continual learning, the paper's order: Science -> Tool Use -> Medical.
+# Sequential continual learning over SEQ, in the order given. The paper (Sec. 4.3,
+# Fig. 3) trains the three skills sequentially but its text doesn't state the order.
 # Each stage starts from the previous stage's final model.
 SEQ     ?= science tooluse medical
 SEQ_DIR ?= runs/seq-$(notdir $(MODEL))
