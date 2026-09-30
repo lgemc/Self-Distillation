@@ -16,8 +16,9 @@ def parse_args():
     parser.add_argument("--ref_model_mixup_alpha", type=float, default=0.01, help="Reference model mixup alpha")
     parser.add_argument("--output_dir", type=str, help="Output directory")
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-7B-Instruct", help="Model name")
-    parser.add_argument("--dataset_name", type=str, default="tooluse", help="Dataset name", choices=["tooluse", "science"])
+    parser.add_argument("--dataset_name", type=str, default="tooluse", help="Dataset name", choices=["tooluse", "science", "medical"])
     parser.add_argument("--seed", type=int, default=42, help="Seed")
+    parser.add_argument("--max_steps", type=int, default=-1, help="Stop after this many steps (-1 = run all epochs)")
     return parser.parse_args()
 
 def load_tooluse_dataset(seed=42) -> Dataset:
@@ -79,6 +80,36 @@ Now answer with a response of your own, including the thinking process.
     return dataset, None
 
 
+def load_medical_dataset(seed=42) -> Dataset:
+    """Load and prepare medical dataset (built by prepare_medical.py) with formatted prompts."""
+    path = 'data/medical_data/train_data'
+    print(f"Loading medical dataset from {path}")
+    dataset = load_from_disk(path)
+
+    def format_example(example):
+        teacher_prompt = Template("""
+$orig_content
+
+This is an example for a response to the question:
+$output_text
+
+Now answer with a response of your own, including the thinking process.
+""")
+
+        return {
+            "prompt": [{"role": "user", "content": example['question']}],
+            "teacher_prompt": [{"role": "user", "content": teacher_prompt.substitute(
+                orig_content=example['question'],
+                output_text=example['output_text'],
+            )}],
+        }
+
+    dataset = dataset.map(format_example, remove_columns=dataset.column_names)
+    dataset = dataset.shuffle(seed=seed)
+    print(f"Loaded {len(dataset)} training examples")
+    return dataset, None
+
+
 if __name__ == "__main__":
     args = parse_args()
     model = AutoModelForCausalLM.from_pretrained(
@@ -94,6 +125,8 @@ if __name__ == "__main__":
         dataset, _ = load_tooluse_dataset(args.seed)
     elif args.dataset_name == "science":
         dataset, _ = load_science_dataset(args.seed)
+    elif args.dataset_name == "medical":
+        dataset, _ = load_medical_dataset(args.seed)
     else:
         raise ValueError(f"Invalid dataset name: {args.dataset_name}")
 
@@ -115,6 +148,7 @@ if __name__ == "__main__":
         max_prompt_length = 1024,
         max_completion_length = 1024,
         num_train_epochs = args.num_train_epochs,
+        max_steps = args.max_steps,
         num_iterations = 1,
         num_generations = 1,
         save_steps = 100,
@@ -136,3 +170,4 @@ if __name__ == "__main__":
         processing_class=tokenizer,
     )
     trainer.train()
+    trainer.save_model(args.output_dir)
