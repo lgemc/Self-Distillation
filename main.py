@@ -19,8 +19,15 @@ def parse_args():
     parser.add_argument("--dataset_name", type=str, default="tooluse", help="Dataset name", choices=["tooluse", "science", "medical"])
     parser.add_argument("--seed", type=int, default=42, help="Seed")
     parser.add_argument("--max_prompt_length", type=int, default=1024, help="Max prompt tokens; longer prompts are cut from the left")
+    parser.add_argument("--per_device_batch_size", type=int, default=1, help="Micro-batch size; gradient accumulation fills up to num_prompts_per_batch")
+    parser.add_argument("--no_gradient_checkpointing", action="store_true", help="Keep activations instead of recomputing them (faster, more memory)")
+    parser.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.3, help="Fraction of GPU memory vLLM reserves")
+    parser.add_argument("--no_vllm_sleep", action="store_true", help="Keep vLLM resident between generations instead of sleeping it")
     parser.add_argument("--max_steps", type=int, default=-1, help="Stop after this many steps (-1 = run all epochs)")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.num_prompts_per_batch % args.per_device_batch_size:
+        parser.error("--num_prompts_per_batch must be a multiple of --per_device_batch_size")
+    return args
 
 def load_tooluse_dataset(seed=42) -> Dataset:
     """Load and prepare tooluse dataset with formatted prompts."""
@@ -136,16 +143,17 @@ if __name__ == "__main__":
         use_vllm = True,
         vllm_mode="colocate",
         vllm_tensor_parallel_size=1, 
-        vllm_gpu_memory_utilization=0.3,
-        vllm_enable_sleep_mode=True, 
+        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
+        vllm_enable_sleep_mode=not args.no_vllm_sleep, 
         learning_rate = args.learning_rate,
         warmup_ratio = 0.1,
         lr_scheduler_type = "cosine",
         logging_steps = 1,
         bf16 = True,
         fp16 = False,
-        per_device_train_batch_size = 1,
-        gradient_accumulation_steps = args.num_prompts_per_batch,
+        per_device_train_batch_size = args.per_device_batch_size,
+        gradient_accumulation_steps = args.num_prompts_per_batch // args.per_device_batch_size,
+        gradient_checkpointing = not args.no_gradient_checkpointing,
         max_prompt_length = args.max_prompt_length,
         max_completion_length = 1024,
         num_train_epochs = args.num_train_epochs,

@@ -793,20 +793,29 @@ class DistilTrainer(BaseTrainer):
             logits = logits[:, -logits_to_keep:, :]  # (B, logits_to_keep, H)
             # Divide logits by sampling temperature.
             # See https://huggingface.co/blog/the_n_implementation_details_of_rlhf_with_ppo#policy-training-implementation-details
-            logits = logits / self.temperature
+            # Skip the full-vocab divide when it's a no-op.
+            if self.temperature != 1.0:
+                logits = logits / self.temperature
 
             completion_ids = input_ids_batch[:, -logits_to_keep:]
-            selected_logps = selective_log_softmax(logits, completion_ids)  # compute logprobs
+            # Each full-vocab pass is a large share of the step, so when the full
+            # log-softmax is needed, gather the token logps and entropy from it
+            # instead of recomputing them from the logits.
             if compute_all_logps:
                 logps = log_softmax(logits, dim=-1)
+                selected_logps = logps.gather(-1, completion_ids.unsqueeze(-1)).squeeze(-1)
             else:
                 logps = None
+                selected_logps = selective_log_softmax(logits, completion_ids)  # compute logprobs
             all_selected_logps.append(selected_logps)
             all_logps.append(logps)
 
             if compute_entropy:
                 with torch.no_grad():
-                    entropies = entropy_from_logits(logits)
+                    if logps is not None:
+                        entropies = -(logps.exp() * logps).sum(-1)
+                    else:
+                        entropies = entropy_from_logits(logits)
                 all_entropies.append(entropies)
 
         selected_logps = torch.cat(all_selected_logps, dim=0)
@@ -1627,12 +1636,12 @@ class DistilTrainer(BaseTrainer):
         )
 
         with torch.no_grad():
-            teacher_per_token_logps, teacher_all_logps, teacher_entropies = self._get_per_token_logps_and_entropies(
+            teacher_per_token_logps, teacher_all_logps, _ = self._get_per_token_logps_and_entropies(
                 self.ref_model,
                 teacher_input_ids,
                 teacher_attention_mask,
                 logits_to_keep,
-                compute_entropy=True,
+                compute_entropy=False,
                 pixel_values=inputs.get("pixel_values"),
                 image_grid_thw=inputs.get("image_grid_thw"),
                 num_images=inputs.get("num_images"),

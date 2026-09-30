@@ -26,8 +26,13 @@ def parse_args():
     parser.add_argument("--dataset_name", type=str, default="tooluse", help="Dataset name", choices=["tooluse", "science", "medical"])
     parser.add_argument("--seed", type=int, default=42, help="Seed")
     parser.add_argument("--max_prompt_length", type=int, default=1024, help="Max prompt tokens (sequence cap is this + completion length)")
+    parser.add_argument("--per_device_batch_size", type=int, default=4, help="Micro-batch size; gradient accumulation fills up to num_prompts_per_batch")
+    parser.add_argument("--no_gradient_checkpointing", action="store_true", help="Keep activations instead of recomputing them (faster, more memory)")
     parser.add_argument("--max_steps", type=int, default=-1, help="Stop after this many steps (-1 = run all epochs)")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.num_prompts_per_batch % args.per_device_batch_size:
+        parser.error("--num_prompts_per_batch must be a multiple of --per_device_batch_size")
+    return args
 
 
 def load_dataset(name, seed=42):
@@ -63,7 +68,6 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     dataset = load_dataset(args.dataset_name, args.seed)
 
-    per_device = 4
     config = SFTConfig(
         seed=args.seed,
         learning_rate=args.learning_rate,
@@ -72,13 +76,13 @@ if __name__ == "__main__":
         weight_decay=0.0,
         logging_steps=1,
         bf16=True,
-        per_device_train_batch_size=per_device,
-        gradient_accumulation_steps=args.num_prompts_per_batch // per_device,
+        per_device_train_batch_size=args.per_device_batch_size,
+        gradient_accumulation_steps=args.num_prompts_per_batch // args.per_device_batch_size,
         num_train_epochs=args.num_train_epochs,
         max_steps=args.max_steps,
         max_length=args.max_prompt_length + MAX_COMPLETION_LENGTH,
         completion_only_loss=True,
-        gradient_checkpointing=True,
+        gradient_checkpointing=not args.no_gradient_checkpointing,
         save_steps=100,
         max_grad_norm=1,
         report_to="wandb",

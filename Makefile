@@ -13,6 +13,24 @@ SEED     ?= 42
 MAX_PROMPT ?= 2048
 RUN_NAME ?= $(DATASET)-$(notdir $(MODEL))
 
+# Speed knobs for the GB10 (unified memory, small model). None changes the
+# update: MICRO_BS x (32 / MICRO_BS accumulation) is still 32 prompts per step.
+#   MICRO_BS    micro-batch size. For SDFT 1 is fastest: larger batches add padding,
+#               which costs more in the full-vocab KL and attention than it saves
+#               (measured 47 / 49 / 51 s per step at 1 / 2 / 4). SFT uses SFT_MICRO_BS;
+#               at 4 its full-vocab logits grew to ~79 GB and pushed the GB10 into swap.
+#   GRAD_CKPT   1 = recompute activations in backward (saves memory, slower)
+#   VLLM_SLEEP  1 = sleep vLLM between generations (frees its memory, ~2 s/step)
+#   VLLM_MEM    fraction of memory vLLM reserves; 32 x 3k tokens of 0.6B KV is ~11 GB
+MICRO_BS   ?= 1
+SFT_MICRO_BS ?= 1
+GRAD_CKPT  ?= 0
+VLLM_SLEEP ?= 0
+VLLM_MEM   ?= 0.15
+SPEED_ARGS  = --per_device_batch_size $(MICRO_BS) \
+	$(if $(filter 0,$(GRAD_CKPT)),--no_gradient_checkpointing) \
+	$(if $(filter main.py,$(SCRIPT)),--vllm_gpu_memory_utilization $(VLLM_MEM) $(if $(filter 0,$(VLLM_SLEEP)),--no_vllm_sleep))
+OUT      ?= runs/$(RUN_NAME)
 
 # main.py is SDFT; sft.py is the SFT baseline (same CLI, same demonstrations).
 SCRIPT   ?= main.py
@@ -40,7 +58,7 @@ train:
 	  --output_dir $(OUT) \
 	  --learning_rate $(LR) \
 	  --num_train_epochs $(EPOCHS) \
-	  --max_prompt_length $(MAX_PROMPT) \
+	  --max_prompt_length $(MAX_PROMPT) $(SPEED_ARGS) \
 	  --seed $(SEED)
 
 # Smoke test: a few optimizer steps with small batches, just to confirm the
@@ -51,17 +69,17 @@ smoke:
 	  --model_name $(MODEL) \
 	  --output_dir runs/smoke-$(RUN_NAME) \
 	  --learning_rate $(LR) \
-	  --num_prompts_per_batch 2 \
+	  --num_prompts_per_batch $(MICRO_BS) \
 	  --max_steps 3 \
-	  --max_prompt_length $(MAX_PROMPT) \
+	  --max_prompt_length $(MAX_PROMPT) $(SPEED_ARGS) \
 	  --seed $(SEED)
 
 # SFT baseline: the same runs with sft.py, under sft-* names.
 sft:
-	$(MAKE) train SCRIPT=sft.py RUN_NAME=sft-$(RUN_NAME)
+	$(MAKE) train SCRIPT=sft.py RUN_NAME=sft-$(RUN_NAME) MICRO_BS=$(SFT_MICRO_BS)
 
 sft-seq:
-	$(MAKE) train-seq SCRIPT=sft.py SEQ_TAG=sft-$(SEQ_TAG)
+	$(MAKE) train-seq SCRIPT=sft.py SEQ_TAG=sft-$(SEQ_TAG) MICRO_BS=$(SFT_MICRO_BS)
 
 # Medical is not shipped with the repo; rebuild it from HuatuoGPT-o1.
 data-medical: data/medical_data/train_data
@@ -80,7 +98,7 @@ train-seq: data/medical_data/train_data
 	    --output_dir $$out \
 	    --learning_rate $(LR) \
 	    --num_train_epochs $(EPOCHS) \
-	    --max_prompt_length $(MAX_PROMPT) \
+	    --max_prompt_length $(MAX_PROMPT) $(SPEED_ARGS) \
 	    --seed $(SEED) || exit 1; \
 	  prev=$$out; \
 	done
