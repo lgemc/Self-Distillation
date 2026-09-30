@@ -1692,7 +1692,7 @@ class DistilTrainer(BaseTrainer):
 
         with torch.no_grad():
             kl_approx = (per_token_logps - teacher_per_token_logps) + torch.exp(teacher_per_token_logps - per_token_logps) - 1
-            kl_approx_mean = (kl_approx * loss_completion_mask).sum() / loss_completion_mask.sum()
+            kl_approx_mean = (kl_approx * loss_completion_mask).sum() / loss_completion_mask.sum().clamp(min=1.0)
         self._metrics[mode]["kl_approx"].append(self.accelerator.gather(kl_approx_mean).nanmean().item())
         
         loss_completion_token_count = loss_completion_mask.sum().clamp(min=1.0)

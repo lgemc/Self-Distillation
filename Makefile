@@ -8,6 +8,9 @@ MODEL    ?= Qwen/Qwen3-0.6B
 LR       ?= 5e-5
 EPOCHS   ?= 2
 SEED     ?= 42
+# Teacher prompts carry the golden answer; at 1024 about 8% of tooluse and 1.5%
+# of science teacher prompts get left-truncated (losing the question). 2048 fits all.
+MAX_PROMPT ?= 2048
 RUN_NAME ?= $(DATASET)-$(notdir $(MODEL))
 OUT      ?= runs/$(RUN_NAME)
 
@@ -32,6 +35,7 @@ train:
 	  --output_dir $(OUT) \
 	  --learning_rate $(LR) \
 	  --num_train_epochs $(EPOCHS) \
+	  --max_prompt_length $(MAX_PROMPT) \
 	  --seed $(SEED)
 
 # Smoke test: a few optimizer steps with small batches, just to confirm the
@@ -44,6 +48,7 @@ smoke:
 	  --learning_rate $(LR) \
 	  --num_prompts_per_batch 2 \
 	  --max_steps 3 \
+	  --max_prompt_length $(MAX_PROMPT) \
 	  --seed $(SEED)
 
 # Medical is not shipped with the repo; rebuild it from HuatuoGPT-o1.
@@ -63,6 +68,7 @@ train-seq: data/medical_data/train_data
 	    --output_dir $$out \
 	    --learning_rate $(LR) \
 	    --num_train_epochs $(EPOCHS) \
+	    --max_prompt_length $(MAX_PROMPT) \
 	    --seed $(SEED) || exit 1; \
 	  prev=$$out; \
 	done

@@ -18,6 +18,7 @@ def parse_args():
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-7B-Instruct", help="Model name")
     parser.add_argument("--dataset_name", type=str, default="tooluse", help="Dataset name", choices=["tooluse", "science", "medical"])
     parser.add_argument("--seed", type=int, default=42, help="Seed")
+    parser.add_argument("--max_prompt_length", type=int, default=1024, help="Max prompt tokens; longer prompts are cut from the left")
     parser.add_argument("--max_steps", type=int, default=-1, help="Stop after this many steps (-1 = run all epochs)")
     return parser.parse_args()
 
@@ -145,7 +146,7 @@ if __name__ == "__main__":
         fp16 = False,
         per_device_train_batch_size = 1,
         gradient_accumulation_steps = args.num_prompts_per_batch,
-        max_prompt_length = 1024,
+        max_prompt_length = args.max_prompt_length,
         max_completion_length = 1024,
         num_train_epochs = args.num_train_epochs,
         max_steps = args.max_steps,
