@@ -12,7 +12,10 @@ SEED     ?= 42
 # of science teacher prompts get left-truncated (losing the question). 2048 fits all.
 MAX_PROMPT ?= 2048
 RUN_NAME ?= $(DATASET)-$(notdir $(MODEL))
-OUT      ?= runs/$(RUN_NAME)
+
+
+# main.py is SDFT; sft.py is the SFT baseline (same CLI, same demonstrations).
+SCRIPT   ?= main.py
 
 export WANDB_PROJECT ?= sdft
 
@@ -20,17 +23,18 @@ export WANDB_PROJECT ?= sdft
 # arch, so torch.compile inside vLLM fails; the system CUDA 13 ptxas does.
 export TRITON_PTXAS_PATH ?= /usr/local/cuda/bin/ptxas
 
-.PHONY: train smoke train-seq data-medical eval
+.PHONY: train smoke train-seq sft sft-seq data-medical eval
 
 # Sequential continual learning over SEQ, in the order given. The paper (Sec. 4.3,
 # Fig. 3) trains the three skills sequentially but its text doesn't state the order.
 # Each stage starts from the previous stage's final model.
 SEQ     ?= science tooluse medical
-SEQ_DIR ?= runs/seq-$(notdir $(MODEL))
+SEQ_TAG ?= seq-$(notdir $(MODEL))
+SEQ_DIR ?= runs/$(SEQ_TAG)
 
 # The real run: full epochs over the train split.
 train:
-	WANDB_NAME=$(RUN_NAME) $(PY) main.py \
+	WANDB_NAME=$(RUN_NAME) $(PY) $(SCRIPT) \
 	  --dataset_name $(DATASET) \
 	  --model_name $(MODEL) \
 	  --output_dir $(OUT) \
@@ -52,6 +56,13 @@ smoke:
 	  --max_prompt_length $(MAX_PROMPT) \
 	  --seed $(SEED)
 
+# SFT baseline: the same runs with sft.py, under sft-* names.
+sft:
+	$(MAKE) train SCRIPT=sft.py RUN_NAME=sft-$(RUN_NAME)
+
+sft-seq:
+	$(MAKE) train-seq SCRIPT=sft.py SEQ_TAG=sft-$(SEQ_TAG)
+
 # Medical is not shipped with the repo; rebuild it from HuatuoGPT-o1.
 data-medical: data/medical_data/train_data
 data/medical_data/train_data:
@@ -63,7 +74,7 @@ train-seq: data/medical_data/train_data
 	for ds in $(SEQ); do \
 	  i=$$((i+1)); out=$(SEQ_DIR)/$$i-$$ds; \
 	  echo ">>> stage $$i: $$ds  from $$prev  ->  $$out"; \
-	  WANDB_NAME=seq-$(notdir $(MODEL))-$$i-$$ds $(PY) main.py \
+	  WANDB_NAME=$(SEQ_TAG)-$$i-$$ds $(PY) $(SCRIPT) \
 	    --dataset_name $$ds \
 	    --model_name $$prev \
 	    --output_dir $$out \
