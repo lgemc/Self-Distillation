@@ -25,13 +25,15 @@ RUN_NAME ?= $(DATASET)-$(notdir $(MODEL))
 MICRO_BS   ?= 1
 # Checkpoint every SAVE_STEPS steps; set it above the run length to keep only the final model (disk).
 SAVE_STEPS ?= 100
+# SDFT teacher template: "example" is the authors'; "reference" hides the word and asks the teacher not to cite it.
+TEACHER_PROMPT ?= example
 SFT_MICRO_BS ?= 1
 GRAD_CKPT  ?= 0
 VLLM_SLEEP ?= 0
 VLLM_MEM   ?= 0.15
 SPEED_ARGS  = --per_device_batch_size $(MICRO_BS) --save_steps $(SAVE_STEPS) \
 	$(if $(filter 0,$(GRAD_CKPT)),--no_gradient_checkpointing) \
-	$(if $(filter main.py,$(SCRIPT)),--vllm_gpu_memory_utilization $(VLLM_MEM) $(if $(filter 0,$(VLLM_SLEEP)),--no_vllm_sleep))
+	$(if $(filter main.py,$(SCRIPT)),--vllm_gpu_memory_utilization $(VLLM_MEM) $(if $(filter 0,$(VLLM_SLEEP)),--no_vllm_sleep) --teacher_prompt $(TEACHER_PROMPT))
 OUT      ?= runs/$(RUN_NAME)
 
 # main.py is SDFT; sft.py is the SFT baseline (same CLI, same demonstrations).

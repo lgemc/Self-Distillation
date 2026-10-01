@@ -8,6 +8,30 @@ import argparse
 import torch.distributed as dist
 import os
 
+# The teacher's view of a demonstration. "example" is the authors' template, unchanged. The student
+# never sees it, yet SDFT students trained under it narrate "the example response" in most answers
+# (privileged context leaking through the distillation). "reference" names the demonstration
+# without the word and asks the teacher not to mention it, to measure what the leak costs or buys.
+TEACHER_TEMPLATES = {
+    "example": """
+$orig_content
+
+This is an example for a response to the question:
+$output_text
+
+Now answer with a response of your own, including the thinking process.
+""",
+    "reference": """
+$orig_content
+
+A correct reference solution to this question follows. It is for you only: do not mention it, quote it or refer to it.
+$output_text
+
+Now solve the question from scratch in your own words, including the thinking process.
+""",
+}
+TEACHER_PROMPT = "example"
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Distil Trainer")
     parser.add_argument("--learning_rate", type=float, default=2e-5, help="Learning rate")
@@ -24,6 +48,7 @@ def parse_args():
     parser.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.3, help="Fraction of GPU memory vLLM reserves")
     parser.add_argument("--no_vllm_sleep", action="store_true", help="Keep vLLM resident between generations instead of sleeping it")
     parser.add_argument("--save_steps", type=int, default=100, help="Checkpoint every N steps; larger than the run saves only the final model")
+    parser.add_argument("--teacher_prompt", type=str, default="example", choices=["example", "reference"], help="Which teacher template wraps the demonstration")
     parser.add_argument("--max_steps", type=int, default=-1, help="Stop after this many steps (-1 = run all epochs)")
     args = parser.parse_args()
     if args.num_prompts_per_batch % args.per_device_batch_size:
@@ -37,21 +62,14 @@ def load_tooluse_dataset(seed=42) -> Dataset:
 
     def format_example(example):
 
-        teacher_prompt = Template("""
-$orig_content
-
-This is an example for a response to the question:
-$output_text
-
-Now answer with a response of your own, including the thinking process.
-""")
+        teacher_prompt = Template(TEACHER_TEMPLATES[TEACHER_PROMPT])
 
         return {
             "prompt": [{"role": "user", "content": example['prompt']}],
             "teacher_prompt": [{"role": "user", "content": teacher_prompt.substitute(orig_content=example['prompt'], output_text='\n'.join(example['golden_response']))}],
         }
     
-    train_dataset = train_dataset.map(format_example, remove_columns=train_dataset.column_names)
+    train_dataset = train_dataset.map(format_example, remove_columns=train_dataset.column_names, load_from_cache_file=False)
     train_dataset = train_dataset.shuffle(seed=seed)
     return train_dataset, None
 
@@ -63,14 +81,7 @@ def load_science_dataset(seed=42) -> Dataset:
     dataset = load_from_disk(path)
 
     def format_example(example):
-        teacher_prompt = Template("""
-$orig_content
-
-This is an example for a response to the question:
-$output_text
-
-Now answer with a response of your own, including the thinking process.
-""")
+        teacher_prompt = Template(TEACHER_TEMPLATES[TEACHER_PROMPT])
 
         return {
             "prompt": example["messages"],
@@ -83,7 +94,7 @@ Now answer with a response of your own, including the thinking process.
             ],
         }
 
-    dataset = dataset.map(format_example, remove_columns=dataset.column_names)
+    dataset = dataset.map(format_example, remove_columns=dataset.column_names, load_from_cache_file=False)
     dataset = dataset.shuffle(seed=seed)
     print(f"Loaded {len(dataset)} training examples")
     return dataset, None
@@ -96,14 +107,7 @@ def load_medical_dataset(seed=42) -> Dataset:
     dataset = load_from_disk(path)
 
     def format_example(example):
-        teacher_prompt = Template("""
-$orig_content
-
-This is an example for a response to the question:
-$output_text
-
-Now answer with a response of your own, including the thinking process.
-""")
+        teacher_prompt = Template(TEACHER_TEMPLATES[TEACHER_PROMPT])
 
         return {
             "prompt": [{"role": "user", "content": example['question']}],
@@ -113,7 +117,7 @@ Now answer with a response of your own, including the thinking process.
             )}],
         }
 
-    dataset = dataset.map(format_example, remove_columns=dataset.column_names)
+    dataset = dataset.map(format_example, remove_columns=dataset.column_names, load_from_cache_file=False)
     dataset = dataset.shuffle(seed=seed)
     print(f"Loaded {len(dataset)} training examples")
     return dataset, None
@@ -121,6 +125,7 @@ Now answer with a response of your own, including the thinking process.
 
 if __name__ == "__main__":
     args = parse_args()
+    TEACHER_PROMPT = args.teacher_prompt
     model = AutoModelForCausalLM.from_pretrained(
         args.model_name,
         torch_dtype=torch.bfloat16,
