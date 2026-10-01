@@ -23,11 +23,13 @@ RUN_NAME ?= $(DATASET)-$(notdir $(MODEL))
 #   VLLM_SLEEP  1 = sleep vLLM between generations (frees its memory, ~2 s/step)
 #   VLLM_MEM    fraction of memory vLLM reserves; 32 x 3k tokens of 0.6B KV is ~11 GB
 MICRO_BS   ?= 1
+# Checkpoint every SAVE_STEPS steps; set it above the run length to keep only the final model (disk).
+SAVE_STEPS ?= 100
 SFT_MICRO_BS ?= 1
 GRAD_CKPT  ?= 0
 VLLM_SLEEP ?= 0
 VLLM_MEM   ?= 0.15
-SPEED_ARGS  = --per_device_batch_size $(MICRO_BS) \
+SPEED_ARGS  = --per_device_batch_size $(MICRO_BS) --save_steps $(SAVE_STEPS) \
 	$(if $(filter 0,$(GRAD_CKPT)),--no_gradient_checkpointing) \
 	$(if $(filter main.py,$(SCRIPT)),--vllm_gpu_memory_utilization $(VLLM_MEM) $(if $(filter 0,$(VLLM_SLEEP)),--no_vllm_sleep))
 OUT      ?= runs/$(RUN_NAME)

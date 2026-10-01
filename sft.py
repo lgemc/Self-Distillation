@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument("--max_prompt_length", type=int, default=1024, help="Max prompt tokens (sequence cap is this + completion length)")
     parser.add_argument("--per_device_batch_size", type=int, default=4, help="Micro-batch size; gradient accumulation fills up to num_prompts_per_batch")
     parser.add_argument("--no_gradient_checkpointing", action="store_true", help="Keep activations instead of recomputing them (faster, more memory)")
+    parser.add_argument("--save_steps", type=int, default=100, help="Checkpoint every N steps; larger than the run saves only the final model")
     parser.add_argument("--max_steps", type=int, default=-1, help="Stop after this many steps (-1 = run all epochs)")
     args = parser.parse_args()
     if args.num_prompts_per_batch % args.per_device_batch_size:
@@ -83,7 +84,7 @@ if __name__ == "__main__":
         max_length=args.max_prompt_length + MAX_COMPLETION_LENGTH,
         completion_only_loss=True,
         gradient_checkpointing=not args.no_gradient_checkpointing,
-        save_steps=100,
+        save_steps=args.save_steps,
         max_grad_norm=1,
         report_to="wandb",
         output_dir=args.output_dir,

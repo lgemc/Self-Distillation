@@ -23,6 +23,7 @@ def parse_args():
     parser.add_argument("--no_gradient_checkpointing", action="store_true", help="Keep activations instead of recomputing them (faster, more memory)")
     parser.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.3, help="Fraction of GPU memory vLLM reserves")
     parser.add_argument("--no_vllm_sleep", action="store_true", help="Keep vLLM resident between generations instead of sleeping it")
+    parser.add_argument("--save_steps", type=int, default=100, help="Checkpoint every N steps; larger than the run saves only the final model")
     parser.add_argument("--max_steps", type=int, default=-1, help="Stop after this many steps (-1 = run all epochs)")
     args = parser.parse_args()
     if args.num_prompts_per_batch % args.per_device_batch_size:
@@ -160,7 +161,7 @@ if __name__ == "__main__":
         max_steps = args.max_steps,
         num_iterations = 1,
         num_generations = 1,
-        save_steps = 100,
+        save_steps = args.save_steps,
         max_grad_norm = 1,
         report_to = "wandb",
         output_dir = args.output_dir,
@@ -180,3 +181,8 @@ if __name__ == "__main__":
     )
     trainer.train()
     trainer.save_model(args.output_dir)
+    # The EMA teacher trails the student (mixup alpha per step), so "the model after SDFT" is two
+    # weight sets. Save the teacher beside the student so a diff can read both.
+    teacher = trainer.accelerator.unwrap_model(trainer.ref_model)
+    teacher.save_pretrained(os.path.join(args.output_dir, "teacher"))
+    tokenizer.save_pretrained(os.path.join(args.output_dir, "teacher"))
