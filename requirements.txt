@@ -1,5 +1,6 @@
+--extra-index-url https://download.pytorch.org/whl/cu129
 datasets==4.3.0
-torch==2.9.0
+torch==2.9.0+cu129
 transformers==4.57.1
 accelerate==1.11.0
 peft==0.17.1
@@ -12,6 +13,6 @@ numpy==2.2.6
 scipy==1.15.3
 matplotlib==3.10.7
 flashinfer-python==0.5.3
-wandb==0.22.2
+wandb==0.30.0
 pandas==2.3.3
 deepspeed==0.18.4
