@@ -156,6 +156,14 @@ if __name__ == "__main__":
         gradient_checkpointing = not args.no_gradient_checkpointing,
         max_prompt_length = args.max_prompt_length,
         max_completion_length = 1024,
+        # Qwen3's recommended thinking-mode sampler. The DistilConfig default
+        # (T=1, no top-p/top-k) distils the student on noisier reasoning.
+        temperature = 0.6,
+        top_p = 0.95,
+        top_k = 20,
+        # A rollout cut off at 1024 tokens stops inside its <think> block with
+        # no answer; keep it out of the loss rather than training on it.
+        mask_truncated_completions = True,
         num_train_epochs = args.num_train_epochs,
         max_steps = args.max_steps,
         num_iterations = 1,
