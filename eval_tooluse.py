@@ -18,8 +18,17 @@ def parse_args():
                         help="Maximum number of tokens to generate")
     parser.add_argument("--output_dir", type=str, default=None,
                         help="Directory to save evaluation results (defaults to model_path)")
-    parser.add_argument("--temperature", type=float, default=0.0,
+    # Qwen3's recommended thinking-mode sampler (model card, and the checkpoint's
+    # generation_config.json). Greedy decoding in thinking mode is what the card
+    # warns against: it degrades answers and loops until the length cap.
+    parser.add_argument("--temperature", type=float, default=0.6,
                         help="Sampling temperature (0 for greedy)")
+    parser.add_argument("--top_p", type=float, default=0.95,
+                        help="Nucleus sampling threshold")
+    parser.add_argument("--top_k", type=int, default=20,
+                        help="Top-k sampling cutoff (-1 to disable)")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Sampling seed; run several to report a spread rather than one draw")
     return parser.parse_args()
 
 
@@ -52,10 +61,14 @@ def load_test_data(tokenizer):
     return data
 
 
-def generate_responses(llm, tokenizer, prompts, max_new_tokens=1024, temperature=0.0):
+def generate_responses(llm, tokenizer, prompts, max_new_tokens=1024, temperature=0.6,
+                       top_p=0.95, top_k=20, seed=0):
     """Generate responses from the model using vLLM."""
     sampling_params = SamplingParams(
         temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        seed=seed,
         max_tokens=max_new_tokens,
         stop_token_ids=[tokenizer.eos_token_id] if tokenizer.eos_token_id else None,
     )
@@ -131,7 +144,10 @@ def main():
     responses = generate_responses(
         llm, tokenizer, prompts, 
         args.max_new_tokens, 
-        args.temperature
+        args.temperature,
+        args.top_p,
+        args.top_k,
+        args.seed,
     )
     
     # Evaluate correctness
@@ -160,16 +176,19 @@ def main():
             "model_path": args.model_path,
             "max_new_tokens": args.max_new_tokens,
             "temperature": args.temperature,
+            "top_p": args.top_p,
+            "top_k": args.top_k,
+            "seed": args.seed,
         }
     }
     
-    output_path = os.path.join(output_dir, "eval_results.json")
+    output_path = os.path.join(output_dir, f"eval_results-seed{args.seed}.json")
     with open(output_path, "w") as f:
         json.dump(results_to_save, f, indent=2)
     print(f"\nSaved results to {output_path}")
     
     # Optionally save responses for inspection
-    responses_path = os.path.join(output_dir, "eval_responses.json")
+    responses_path = os.path.join(output_dir, f"eval_responses-seed{args.seed}.json")
     with open(responses_path, "w") as f:
         json.dump([
             {
